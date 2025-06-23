@@ -1,0 +1,25 @@
+{
+    "version": 8,
+    "configurePresets": [
+        {
+            "name": "linux-x11",
+            "displayName": "Linux x11",
+            "binaryDir": "${sourceDir}/../kodi-build/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_INSTALL_PREFIX": "/usr/local",
+                "CORE_PLATFORM_NAME": "x11",
+                "APP_RENDER_SYSTEM": "gl"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "linux-x11",
+            "displayName": "Linux x11",
+            "configurePreset": "linux-x11",     
+            "verbose": true,
+            "jobs": 8
+        }
+    ]
+}
