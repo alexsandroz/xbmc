@@ -45,6 +45,7 @@
 #include "settings/lib/Setting.h"
 #include "storage/MediaManager.h"
 #include "threads/IRunnable.h"
+#include "utils/Artwork.h"
 #include "utils/FileUtils.h"
 #include "utils/SortUtils.h"
 #include "utils/StringUtils.h"
@@ -374,7 +375,7 @@ void CGUIDialogVideoInfo::SetMovie(const CFileItem *item)
       m_castList->Add(item);
     }
     // get performers in the music video (added as actors)
-    for (CVideoInfoTag::iCast it = m_movieItem->GetVideoInfoTag()->m_cast.begin();
+    for (auto it = m_movieItem->GetVideoInfoTag()->m_cast.begin();
          it != m_movieItem->GetVideoInfoTag()->m_cast.end(); ++it)
     {
       // Check to see if we have already added this performer as the artist and skip adding if so
@@ -406,8 +407,8 @@ void CGUIDialogVideoInfo::SetMovie(const CFileItem *item)
     CVideoDatabase database;
     database.Open();
     database.GetMoviesNav(m_movieItem->GetPath(), *m_castList, -1, -1, -1, -1, -1, -1,
-                          m_movieItem->GetVideoInfoTag()->m_set.id, -1,
-                          SortDescription(), VideoDbDetailsAll);
+                          m_movieItem->GetVideoInfoTag()->m_set.GetID(), -1, SortDescription(),
+                          VideoDbDetailsAll);
     m_castList->Sort(SortBySortTitle, SortOrderDescending);
     CVideoThumbLoader loader;
     for (auto& item : *m_castList)
@@ -415,7 +416,8 @@ void CGUIDialogVideoInfo::SetMovie(const CFileItem *item)
   }
   else
   { // movie/show/season/episode
-    for (CVideoInfoTag::iCast it = m_movieItem->GetVideoInfoTag()->m_cast.begin(); it != m_movieItem->GetVideoInfoTag()->m_cast.end(); ++it)
+    for (auto it = m_movieItem->GetVideoInfoTag()->m_cast.begin();
+         it != m_movieItem->GetVideoInfoTag()->m_cast.end(); ++it)
     {
       CFileItemPtr item(new CFileItem(it->strName));
       if (!it->thumb.empty())
@@ -816,7 +818,7 @@ void AddCurrentArtTypes(std::vector<std::string>& artTypes,
                         const CVideoInfoTag& tag,
                         CVideoDatabase& db)
 {
-  std::map<std::string, std::string> currentArt;
+  KODI::ART::Artwork currentArt;
 
   if (tag.GetAssetInfo().GetId() >= 0)
     db.GetArtForAsset(tag.m_iFileId, ArtFallbackOptions::NONE, currentArt);
@@ -1086,13 +1088,13 @@ int CGUIDialogVideoInfo::ManageVideoItem(const std::shared_ptr<CFileItem>& item)
     buttons.Add(CONTEXT_BUTTON_SET_ART, 13511);
 
   // movie sets
-  if (item->m_bIsFolder && type == MediaTypeVideoCollection)
+  if (item->IsFolder() && type == MediaTypeVideoCollection)
   {
     buttons.Add(CONTEXT_BUTTON_MOVIESET_ADD_REMOVE_ITEMS, 20465);
   }
 
   // tags
-  if (item->m_bIsFolder && type == "tag")
+  if (item->IsFolder() && type == "tag")
   {
     CVideoDbUrl videoUrl;
     if (videoUrl.FromString(item->GetPath()))
@@ -1255,7 +1257,7 @@ bool CGUIDialogVideoInfo::UpdateVideoItemTitle(const std::shared_ptr<CFileItem>&
   if (mediaType == MediaTypeSeason)
   {
     detail.m_strSortTitle = title;
-    std::map<std::string, std::string> artwork;
+    KODI::ART::Artwork artwork;
     database.SetDetailsForSeason(detail, artwork, detail.m_iIdShow, detail.m_iDbId);
   }
   else
@@ -1414,7 +1416,7 @@ bool CGUIDialogVideoInfo::DeleteVideoItem(const std::shared_ptr<CFileItem>& item
     if (URIUtils::IsBlurayPath(strDeletePath) || VIDEO::IsDVDFile(*item) || VIDEO::IsBDFile(*item))
       strDeletePath = URIUtils::GetDiscBase(strDeletePath);
     if (URIUtils::HasSlashAtEnd(strDeletePath))
-      item->m_bIsFolder = true;
+      item->SetFolder(true);
 
     // check if the file/directory can be deleted
     if (CUtil::SupportsWriteFileOperations(strDeletePath))
@@ -1423,7 +1425,7 @@ bool CGUIDialogVideoInfo::DeleteVideoItem(const std::shared_ptr<CFileItem>& item
 
       // HACK: stacked files need to be treated as folders in order to be deleted
       if (item->IsStack())
-        item->m_bIsFolder = true;
+        item->SetFolder(true);
 
       CFileUtils::DeleteItemWithConfirm(item);
     }
@@ -1556,9 +1558,9 @@ bool CGUIDialogVideoInfo::GetSetForMovie(const CFileItem* movieItem,
   int currentSetId = 0;
   std::string currentSetLabel;
 
-  if (movieItem->GetVideoInfoTag()->m_set.id > currentSetId)
+  if (movieItem->GetVideoInfoTag()->m_set.GetID() > currentSetId)
   {
-    currentSetId = movieItem->GetVideoInfoTag()->m_set.id;
+    currentSetId = movieItem->GetVideoInfoTag()->m_set.GetID();
     currentSetLabel = videodb.GetSetById(currentSetId);
   }
 
@@ -1612,7 +1614,8 @@ bool CGUIDialogVideoInfo::GetSetForMovie(const CFileItem* movieItem,
     if (!CGUIKeyboardFactory::ShowAndGetInput(newSetTitle, CVariant{g_localizeStrings.Get(20468)}, false))
       return false;
     int idSet = videodb.AddSet(newSetTitle);
-    std::map<std::string, std::string> movieArt, setArt;
+    KODI::ART::Artwork movieArt;
+    KODI::ART::Artwork setArt;
     if (!videodb.GetArtForItem(idSet, MediaTypeVideoCollection, setArt))
     {
       videodb.GetArtForItem(movieItem->GetVideoInfoTag()->m_iDbId, MediaTypeMovie, movieArt);

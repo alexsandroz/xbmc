@@ -14,6 +14,7 @@
 #include "TextureDatabase.h"
 #include "URL.h"
 #include "Util.h"
+#include "addons/AddonManager.h"
 #include "addons/Scraper.h"
 #include "dialogs/GUIDialogSelect.h"
 #include "dialogs/GUIDialogYesNo.h"
@@ -26,6 +27,7 @@
 #include "messaging/helpers/DialogOKHelper.h"
 #include "settings/AdvancedSettings.h"
 #include "settings/SettingsComponent.h"
+#include "utils/Artwork.h"
 #include "utils/StringUtils.h"
 #include "utils/URIUtils.h"
 #include "utils/log.h"
@@ -34,6 +36,7 @@
 #include "video/VideoInfoScanner.h"
 #include "video/tags/IVideoInfoTagLoader.h"
 #include "video/tags/VideoInfoTagLoaderFactory.h"
+#include "video/tags/VideoTagLoaderNFO.h"
 #include "video/tags/VideoTagLoaderPlugin.h"
 
 #include <memory>
@@ -41,6 +44,8 @@
 
 using namespace KODI;
 using namespace KODI::MESSAGING;
+using namespace VIDEO;
+using namespace ADDON;
 
 CVideoLibraryRefreshingJob::CVideoLibraryRefreshingJob(std::shared_ptr<CFileItem> item,
                                                        bool forceRefresh,
@@ -76,11 +81,110 @@ bool CVideoLibraryRefreshingJob::Work(CVideoDatabase &db)
 
   // determine the scraper for the item's path
   VIDEO::SScanSettings scanSettings;
-  ADDON::ScraperPtr scraper = db.GetScraperForPath(m_item->GetPath(), scanSettings);
+  ScraperPtr scraper = db.GetScraperForPath(m_item->GetPath(), scanSettings);
   if (scraper == nullptr)
-    return false;
+  {
+    if (m_item->GetVideoContentType() == VideoDbContentType::MOVIE_SETS)
+    {
+      // Deal with refreshing movie set
+      // Get movies in set
+      CVideoInfoTag tag{*m_item->GetVideoInfoTag()};
+      const int dbId{tag.m_iDbId};
+      std::string setTitle{tag.GetTitle()};
+      const std::string originalSetTitle{db.GetOriginalSetById(dbId)};
+      CFileItemList movies;
+      CVideoInfoTag movieTag;
+      bool localFound{false};
+      bool onlineFound{false};
+      std::string overview{};
 
-  if (URIUtils::IsPlugin(m_item->GetPath()) && !XFILE::CPluginDirectory::IsMediaLibraryScanningAllowed(ADDON::TranslateContent(scraper->Content()), m_item->GetPath()))
+      if (db.GetMoviesBySet(m_item->GetPath(), movies, dbId))
+      {
+        // Scan each movie folder for an NFO file and get online information for a movie in the set
+        for (const auto& movie : movies)
+        {
+          // Check not plugin
+          if (!URIUtils::IsPlugin(movie->GetDynPath()))
+          {
+            // Use local scraper
+            AddonPtr addon{};
+            CServiceBroker::GetAddonMgr().GetAddon("metadata.local", addon,
+                                                   OnlyEnabled::CHOICE_YES);
+            scraper = std::dynamic_pointer_cast<CScraper>(addon);
+
+            // See if Movie NFO
+            movie->SetPath(movie->GetDynPath());
+            const auto nfo{std::make_unique<CVideoTagLoaderNFO>(*movie, scraper, true)};
+            if (nfo->HasInfo())
+            {
+              // Movie NFO found - see if it has set overview
+              nfo->Load(tag, false);
+
+              // Check set matches
+              if (tag.m_set.GetTitle() == originalSetTitle)
+              {
+                localFound = true;
+                if (tag.m_set.HasOverview())
+                  overview = tag.m_set.GetOverview();
+              }
+            }
+
+            // Get online details (only if no movie.nfo containing set details found locally)
+            if (!onlineFound && overview.empty() && !movie->GetVideoInfoTag()->GetTitle().empty())
+            {
+              scraper = db.GetScraperForPath(movie->GetDynPath(), scanSettings);
+              CVideoInfoDownloader infoDownloader{scraper};
+              MOVIELIST itemResultList;
+              infoDownloader.FindMovie(movie->GetVideoInfoTag()->GetTitle(),
+                                       movie->GetVideoInfoTag()->GetYear(), itemResultList);
+              if (!itemResultList.empty())
+              {
+                CScraper::UniqueIDs uniqueIDs;
+                if (infoDownloader.GetDetails(uniqueIDs, itemResultList.at(0), tag))
+                  if (tag.m_set.HasTitle())
+                  {
+                    onlineFound = true;
+                    if (overview.empty())
+                      overview = tag.m_set.GetOverview();
+                  }
+              }
+            }
+          }
+        }
+      }
+
+      // UpdateSetInTag will update set art using the following:
+      // 1 Local files
+      // 2 Set.nfo <art> tag
+      // 3 Online scraper (already populated above)
+      bool setUpdated{CVideoInfoScanner::UpdateSetInTag(tag)};
+
+      // Nothing found to update with
+      if (!localFound && !onlineFound && !setUpdated)
+        return false;
+
+      // tag now contains up-to-date set title
+      if (tag.m_set.HasTitle())
+        overview = tag.m_set.GetOverview();
+      db.AddSet(tag.m_set.GetTitle(), overview, tag.m_set.GetOriginalTitle());
+
+      // Update set art
+      ART::Artwork movieSetArt;
+      if (tag.m_set.HasArt())
+        movieSetArt = tag.m_set.GetArt();
+      db.SetArtForItem(dbId, MediaTypeVideoCollection, movieSetArt);
+
+      // Refresh (for video info dialog)
+      m_item->ClearArt();
+      db.GetSetInfo(dbId, tag);
+      m_item->SetFromVideoInfoTag(tag);
+      return true;
+    }
+  }
+
+  if (URIUtils::IsPlugin(m_item->GetPath()) &&
+      !XFILE::CPluginDirectory::IsMediaLibraryScanningAllowed(TranslateContent(scraper->Content()),
+                                                              m_item->GetPath()))
   {
     CLog::Log(LOGINFO,
               "CVideoLibraryRefreshingJob: Plugin '{}' does not support media library scanning and "
@@ -90,7 +194,7 @@ bool CVideoLibraryRefreshingJob::Work(CVideoDatabase &db)
   }
 
   // copy the scraper in case we need it again
-  ADDON::ScraperPtr originalScraper(scraper);
+  ScraperPtr originalScraper(scraper);
 
   // get the item's correct title
   std::string itemTitle = m_searchTitle;
@@ -107,7 +211,7 @@ bool CVideoLibraryRefreshingJob::Work(CVideoDatabase &db)
   do
   {
     std::unique_ptr<CVideoInfoTag> pluginTag;
-    std::unique_ptr<CGUIListItem::ArtMap> pluginArt;
+    std::unique_ptr<KODI::ART::Artwork> pluginArt;
 
     if (!ignoreNfo)
     {
@@ -132,7 +236,8 @@ bool CVideoLibraryRefreshingJob::Work(CVideoDatabase &db)
             scraper->ID() == "metadata.local")
         {
           // get video info and art from plugin source with metadata.local scraper
-          if (scraper->Content() == CONTENT_TVSHOWS && !m_item->m_bIsFolder && tag->m_iIdShow < 0)
+          if (scraper->Content() == ADDON::ContentType::TVSHOWS && !m_item->IsFolder() &&
+              tag->m_iIdShow < 0)
             // preserve show_id for episode
             tag->m_iIdShow = m_item->GetVideoInfoTag()->m_iIdShow;
           pluginTag = std::move(tag);
@@ -155,11 +260,11 @@ bool CVideoLibraryRefreshingJob::Work(CVideoDatabase &db)
           nfoResult != CInfoScanner::InfoType::ERROR_NFO)
       {
         int heading = 20159;
-        if (scraper->Content() == CONTENT_MOVIES)
+        if (scraper->Content() == ADDON::ContentType::MOVIES)
           heading = 13346;
-        else if (scraper->Content() == CONTENT_TVSHOWS)
-          heading = m_item->m_bIsFolder ? 20351 : 20352;
-        else if (scraper->Content() == CONTENT_MUSICVIDEOS)
+        else if (scraper->Content() == ADDON::ContentType::TVSHOWS)
+          heading = m_item->IsFolder() ? 20351 : 20352;
+        else if (scraper->Content() == ADDON::ContentType::MUSICVIDEOS)
           heading = 20393;
         if (CGUIDialogYesNo::ShowAndGetInput(heading, 20446))
         {
@@ -172,7 +277,7 @@ bool CVideoLibraryRefreshingJob::Work(CVideoDatabase &db)
     }
 
     // no need to re-fetch the episode guide for episodes
-    if (scraper->Content() == CONTENT_TVSHOWS && !m_item->m_bIsFolder)
+    if (scraper->Content() == ADDON::ContentType::TVSHOWS && !m_item->IsFolder())
       hasDetails = true;
 
     // if we don't have an url or need to refresh anyway do the web search
@@ -193,8 +298,8 @@ bool CVideoLibraryRefreshingJob::Work(CVideoDatabase &db)
       {
         CFileItemList items;
         items.Add(m_item);
-        items.SetPath(m_item->m_bIsFolder ? URIUtils::GetParentPath(m_item->GetPath())
-                                          : URIUtils::GetDirectory(m_item->GetPath()));
+        items.SetPath(m_item->IsFolder() ? URIUtils::GetParentPath(m_item->GetPath())
+                                         : URIUtils::GetDirectory(m_item->GetPath()));
         VIDEO::CVideoInfoScanner scanner;
         if (scanner.RetrieveVideoInfo(items, scanSettings.parent_name, scraper->Content(),
                                       !ignoreNfo, nullptr, m_refreshAll, GetProgressDialog()))
@@ -223,7 +328,8 @@ bool CVideoLibraryRefreshingJob::Work(CVideoDatabase &db)
             // ask the user what to do
             CGUIDialogSelect* selectDialog = CServiceBroker::GetGUI()->GetWindowManager().GetWindow<CGUIDialogSelect>(WINDOW_DIALOG_SELECT);
             selectDialog->Reset();
-            selectDialog->SetHeading(scraper->Content() == CONTENT_TVSHOWS ? 20356 : 196);
+            selectDialog->SetHeading(scraper->Content() == ADDON::ContentType::TVSHOWS ? 20356
+                                                                                       : 196);
             for (const auto& itemResult : itemResultList)
               selectDialog->Add(itemResult.GetTitle());
             selectDialog->EnableButton(true, 413); // "Manual"
@@ -237,7 +343,11 @@ bool CVideoLibraryRefreshingJob::Work(CVideoDatabase &db)
             else if (selectDialog->IsButtonPressed())
             {
               // ask the user to input a title to use
-              if (!CGUIKeyboardFactory::ShowAndGetInput(itemTitle, g_localizeStrings.Get(scraper->Content() == CONTENT_TVSHOWS ? 20357 : 16009), false))
+              if (!CGUIKeyboardFactory::ShowAndGetInput(
+                      itemTitle,
+                      g_localizeStrings.Get(
+                          scraper->Content() == ADDON::ContentType::TVSHOWS ? 20357 : 16009),
+                      false))
                 return false;
 
               // go through the whole process again
@@ -267,7 +377,11 @@ bool CVideoLibraryRefreshingJob::Work(CVideoDatabase &db)
       if (IsModal())
       {
         // ask the user to input a title to use
-        if (!CGUIKeyboardFactory::ShowAndGetInput(itemTitle, g_localizeStrings.Get(scraper->Content() == CONTENT_TVSHOWS ? 20357 : 16009), false))
+        if (!CGUIKeyboardFactory::ShowAndGetInput(
+                itemTitle,
+                g_localizeStrings.Get(scraper->Content() == ADDON::ContentType::TVSHOWS ? 20357
+                                                                                        : 16009),
+                false))
           return false;
 
         // go through the whole process again
@@ -319,17 +433,18 @@ bool CVideoLibraryRefreshingJob::Work(CVideoDatabase &db)
       items.Add(std::make_shared<CFileItem>(*m_item));
 
     // set the proper path of the list of items to lookup
-    items.SetPath(m_item->m_bIsFolder ? URIUtils::GetParentPath(path) : URIUtils::GetDirectory(path));
+    items.SetPath(m_item->IsFolder() ? URIUtils::GetParentPath(path)
+                                     : URIUtils::GetDirectory(path));
 
     int headingLabel = 198;
-    if (scraper->Content() == CONTENT_TVSHOWS)
+    if (scraper->Content() == ADDON::ContentType::TVSHOWS)
     {
-      if (m_item->m_bIsFolder)
+      if (m_item->IsFolder())
         headingLabel = 20353;
       else
         headingLabel = 20361;
     }
-    else if (scraper->Content() == CONTENT_MUSICVIDEOS)
+    else if (scraper->Content() == ADDON::ContentType::MUSICVIDEOS)
       headingLabel = 20394;
 
     // prepare the progress dialog for downloading all the necessary information
@@ -343,13 +458,13 @@ bool CVideoLibraryRefreshingJob::Work(CVideoDatabase &db)
     // remove any existing data for the item we're going to refresh
     if (origDbId > 0)
     {
-      if (scraper->Content() == CONTENT_MOVIES)
+      if (scraper->Content() == ADDON::ContentType::MOVIES)
         db.DeleteMovie(origDbId, DeleteMovieCascadeAction::DEFAULT_VERSION);
-      else if (scraper->Content() == CONTENT_MUSICVIDEOS)
+      else if (scraper->Content() == ADDON::ContentType::MUSICVIDEOS)
         db.DeleteMusicVideo(origDbId);
-      else if (scraper->Content() == CONTENT_TVSHOWS)
+      else if (scraper->Content() == ADDON::ContentType::TVSHOWS)
       {
-        if (!m_item->m_bIsFolder)
+        if (!m_item->IsFolder())
           db.DeleteEpisode(origDbId);
         else if (m_item->GetVideoInfoTag()->m_type == MediaTypeSeason)
           db.DeleteSeason(origDbId);
@@ -390,14 +505,14 @@ bool CVideoLibraryRefreshingJob::Work(CVideoDatabase &db)
     }
 
     // retrieve the updated information from the database
-    if (scraper->Content() == CONTENT_MOVIES)
+    if (scraper->Content() == ADDON::ContentType::MOVIES)
       db.GetMovieInfo(m_item->GetPath(), *m_item->GetVideoInfoTag());
-    else if (scraper->Content() == CONTENT_MUSICVIDEOS)
+    else if (scraper->Content() == ADDON::ContentType::MUSICVIDEOS)
       db.GetMusicVideoInfo(m_item->GetPath(), *m_item->GetVideoInfoTag());
-    else if (scraper->Content() == CONTENT_TVSHOWS)
+    else if (scraper->Content() == ADDON::ContentType::TVSHOWS)
     {
       // update tvshow/season info to get updated episode numbers
-      if (m_item->m_bIsFolder)
+      if (m_item->IsFolder())
       {
         // Note: don't use any database ids (m_iDbId, m_idSeason, m_IdShow) of m_item's video
         // info tag here. The db information might have been deleted and recreated afterwards,

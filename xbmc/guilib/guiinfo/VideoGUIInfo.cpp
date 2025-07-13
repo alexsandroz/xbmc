@@ -414,12 +414,12 @@ bool CVideoGUIInfo::GetLabel(std::string& value, const CFileItem *item, int cont
         value = StringUtils::Join(tag->m_tags, CServiceBroker::GetSettingsComponent()->GetAdvancedSettings()->m_videoItemSeparator);
         return true;
       case LISTITEM_SET:
-        value = tag->m_set.title;
+        value = tag->m_set.GetTitle();
         return true;
       case LISTITEM_SETID:
-        if (tag->m_set.id > 0)
+        if (tag->m_set.GetID() > 0)
         {
-          value = std::to_string(tag->m_set.id);
+          value = std::to_string(tag->m_set.GetID());
           return true;
         }
         break;
@@ -521,7 +521,7 @@ bool CVideoGUIInfo::GetLabel(std::string& value, const CFileItem *item, int cont
       case LISTITEM_PATH:
         if (VIDEO::IsVideoDb(*item))
         {
-          if (item->m_bIsFolder)
+          if (item->IsFolder())
             value = tag->m_strPath;
           else
             URIUtils::GetParentPath(tag->m_strFileNameAndPath, value);

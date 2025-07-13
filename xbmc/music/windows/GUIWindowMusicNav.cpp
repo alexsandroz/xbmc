@@ -210,9 +210,8 @@ bool CGUIWindowMusicNav::OnAction(const CAction& action)
   {
     int item = m_viewControl.GetSelectedItem();
     CMusicDatabaseDirectory dir;
-    if (item > -1 && m_vecItems->Get(item)->m_bIsFolder
-                  && (m_vecItems->Get(item)->IsAlbum()||
-                      dir.IsArtistDir(m_vecItems->Get(item)->GetPath())))
+    if (item > -1 && m_vecItems->Get(item)->IsFolder() &&
+        (m_vecItems->Get(item)->IsAlbum() || dir.IsArtistDir(m_vecItems->Get(item)->GetPath())))
     {
       OnContextButton(item,CONTEXT_BUTTON_INFO);
       return true;
@@ -231,11 +230,11 @@ bool CGUIWindowMusicNav::ManageInfoProvider(const CFileItemPtr& item)
     return false;
 
   // Set things up for processing artist or albums
-  CONTENT_TYPE content = CONTENT_ALBUMS;
+  ADDON::ContentType content = ADDON::ContentType::ALBUMS;
   int id = params.GetAlbumId();
   if (id == -1)
   {
-    content = CONTENT_ARTISTS;
+    content = ADDON::ContentType::ARTISTS;
     id = params.GetArtistId();
   }
 
@@ -265,13 +264,13 @@ bool CGUIWindowMusicNav::ManageInfoProvider(const CFileItemPtr& item)
     case INFOPROVIDERAPPLYOPTIONS::INFOPROVIDER_ALLVIEW: // Change information provider for the filtered items shown on this node
       {
         msgctxt = 38069;
-        if (content == CONTENT_ARTISTS)
+        if (content == ADDON::ContentType::ARTISTS)
           msgctxt = 38068;
         if (CGUIDialogYesNo::ShowAndGetInput(CVariant{ 20195 }, msgctxt)) // Change information provider, confirm for all shown
         {
           // Set scraper for all items on current view.
           std::string strPath = "musicdb://";
-          if (content == CONTENT_ARTISTS)
+          if (content == ADDON::ContentType::ARTISTS)
             strPath += "artists";
           else
             strPath += "albums";
@@ -279,7 +278,7 @@ bool CGUIWindowMusicNav::ManageInfoProvider(const CFileItemPtr& item)
           // Items on view could be limited by navigation criteria, smart playlist rules or a filter.
           // Get these options, except ID, from item path
           CURL musicUrl(item->GetPath());  //Use CURL, as CMusicDbUrl removes "filter" option
-          if (content == CONTENT_ARTISTS)
+          if (content == ADDON::ContentType::ARTISTS)
             musicUrl.RemoveOption("artistid");
           else
             musicUrl.RemoveOption("albumid");
@@ -291,7 +290,7 @@ bool CGUIWindowMusicNav::ManageInfoProvider(const CFileItemPtr& item)
     case INFOPROVIDERAPPLYOPTIONS::INFOPROVIDER_DEFAULT: // Change information provider for all items
       {
         msgctxt = 38071;
-        if (content == CONTENT_ARTISTS)
+        if (content == ADDON::ContentType::ARTISTS)
           msgctxt = 38070;
         if (CGUIDialogYesNo::ShowAndGetInput(CVariant{20195}, msgctxt)) // Change information provider, confirm default and clear
         {
@@ -299,13 +298,13 @@ bool CGUIWindowMusicNav::ManageInfoProvider(const CFileItemPtr& item)
           scraper->SaveSettings();
           // Set default scraper
           const std::shared_ptr<CSettings> settings = CServiceBroker::GetSettingsComponent()->GetSettings();
-          if (content == CONTENT_ARTISTS)
+          if (content == ADDON::ContentType::ARTISTS)
             settings->SetString(CSettings::SETTING_MUSICLIBRARY_ARTISTSSCRAPER, scraper->ID());
           else
             settings->SetString(CSettings::SETTING_MUSICLIBRARY_ALBUMSSCRAPER, scraper->ID());
           settings->Save();
           // Clear all item specific settings
-          if (content == CONTENT_ARTISTS)
+          if (content == ADDON::ContentType::ARTISTS)
             result = m_musicdatabase.SetScraperAll("musicdb://artists/", nullptr);
           else
             result = m_musicdatabase.SetScraperAll("musicdb://albums/", nullptr);
@@ -330,7 +329,7 @@ bool CGUIWindowMusicNav::ManageInfoProvider(const CFileItemPtr& item)
       if (CGUIDialogYesNo::ShowAndGetInput(CVariant{20195}, CVariant{38073}))
       {
         std::string itempath = StringUtils::Format("musicdb://albums/{}/", id);
-        if (content == CONTENT_ARTISTS)
+        if (content == ADDON::ContentType::ARTISTS)
           itempath = StringUtils::Format("musicdb://artists/{}/", id);
         OnItemInfoAll(itempath, true);
       }
@@ -356,7 +355,7 @@ bool CGUIWindowMusicNav::OnClick(int iItem, const std::string &player /* = "" */
     }
     return true;
   }
-  if (MUSIC::IsMusicDb(*item) && !item->m_bIsFolder)
+  if (MUSIC::IsMusicDb(*item) && !item->IsFolder())
     m_musicdatabase.SetPropertiesForFileItem(*item);
 
   if (PLAYLIST::IsPlayList(*item) &&
@@ -619,7 +618,7 @@ void CGUIWindowMusicNav::GetContextButtons(int itemNumber, CContextButtons &butt
           !inPlaylists &&
           !NETWORK::IsInternetStream(*m_vecItems) && // Not playlists locations or streams
           !item->IsPath("add") && !item->IsParentFolder() && // Not ".." and "Add items
-          item->m_bIsFolder && // Folders only, but playlists can be folders too
+          item->IsFolder() && // Folders only, but playlists can be folders too
           !URIUtils::IsLibraryContent(item->GetPath()) && // database folder or .xsp files
           !URIUtils::IsSpecial(item->GetPath()) && !item->IsPlugin() && !item->IsScript() &&
           !PLAYLIST::IsPlayList(
@@ -635,7 +634,7 @@ void CGUIWindowMusicNav::GetContextButtons(int itemNumber, CContextButtons &butt
 
       if (!item->IsParentFolder() && !dir.IsAllItem(item->GetPath()))
       {
-        if (item->m_bIsFolder && !VIDEO::IsVideoDb(*item) && !item->IsPlugin() &&
+        if (item->IsFolder() && !VIDEO::IsVideoDb(*item) && !item->IsPlugin() &&
             !StringUtils::StartsWithNoCase(item->GetPath(), "musicsearch://"))
         {
           if (item->IsAlbum())
@@ -681,7 +680,7 @@ void CGUIWindowMusicNav::GetContextButtons(int itemNumber, CContextButtons &butt
           if (database.GetMatchingMusicVideo(item->GetMusicInfoTag()->GetArtistString(), item->GetMusicInfoTag()->GetAlbum(), item->GetMusicInfoTag()->GetTitle()) > -1)
             buttons.Add(CONTEXT_BUTTON_PLAY_OTHER, 20401);
         }
-        if (item->HasVideoInfoTag() && !item->m_bIsFolder)
+        if (item->HasVideoInfoTag() && !item->IsFolder())
         {
           if ((profileManager->GetCurrentProfile().canWriteDatabases() || g_passwordManager.bMasterUser) && !item->IsPlugin())
           {
@@ -827,7 +826,7 @@ bool CGUIWindowMusicNav::OnContextButton(int itemNumber, CONTEXT_BUTTON button)
   case CONTEXT_BUTTON_DELETE:
     if (PLAYLIST::IsPlayList(*item) || PLAYLIST::IsSmartPlayList(*item))
     {
-      item->m_bIsFolder = false;
+      item->SetFolder(false);
       CFileUtils::DeleteItemWithConfirm(item);
     }
     else if (!VIDEO::IsVideoDb(*item))

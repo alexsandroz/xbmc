@@ -1266,7 +1266,7 @@ constexpr std::array<InfoMap, 7> weather = {{
 ///                  \anchor System_HasMediaBlurayPlaylist
 ///                  _boolean_,
 ///     @return **True** if there is a bluray in the drive that has been played before.
-///     **False** if no drive available\, empty drive, other medium or new bluray.
+///     **False** if no drive available\, empty drive\, other medium or new bluray.
 ///   <p><hr>
 ///   @skinning_v18 **[New Boolean Condition]** \link System_HasMediaBlurayPlaylist
 ///   `System.System_HasMediaBlurayPlaylist` \endlink <p>
@@ -11855,7 +11855,7 @@ std::string CGUIInfoManager::GetMultiInfoItemLabel(const CFileItem *item, int co
         break;
       }
       case LISTITEM_SIZE:
-        if (!item->m_bIsFolder || item->GetSize())
+        if (!item->IsFolder() || item->GetSize())
           return StringUtils::SizeToString(item->GetSize());
         break;
       case LISTITEM_PROGRAM_COUNT:
@@ -11966,7 +11966,7 @@ bool CGUIInfoManager::GetItemBool(const CGUIListItem *item, int contextWindow, i
       case LISTITEM_ISSELECTED:
         return item->IsSelected();
       case LISTITEM_IS_FOLDER:
-        return item->m_bIsFolder;
+        return item->IsFolder();
       case LISTITEM_IS_PARENTFOLDER:
       {
         if (item->IsFileItem())

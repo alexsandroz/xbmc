@@ -124,7 +124,7 @@ bool CGUIPassword::IsItemUnlocked(CFileItem* pItem, const std::string& strType)
 {
   const std::string strLabel = pItem->GetLabel();
   std::string strHeading;
-  if (pItem->m_bIsFolder)
+  if (pItem->IsFolder())
     strHeading = g_localizeStrings.Get(12325); // "Locked! Enter code..."
   else
     strHeading = g_localizeStrings.Get(12348); // "Item locked"
@@ -596,9 +596,9 @@ bool CGUIPassword::IsDatabasePathUnlocked(const std::string& strPath,
   bool bName = false;
   int iIndex = CUtil::GetMatchingSource(strPath, sources, bName);
 
-  if (iIndex > -1 && iIndex < static_cast<int>(sources.size()))
-    if (sources[iIndex].GetLockInfo().GetState() < LOCK_STATE_LOCKED)
-      return true;
+  if (iIndex > -1 && iIndex < static_cast<int>(sources.size()) &&
+      sources[iIndex].GetLockInfo().GetState() < LOCK_STATE_LOCKED)
+    return true;
 
   return false;
 }

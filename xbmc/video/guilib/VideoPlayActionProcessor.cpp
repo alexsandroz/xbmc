@@ -174,7 +174,7 @@ unsigned int CVideoPlayActionProcessor::ChooseStackPart() const
   return dialog->GetSelectedItem() + 1; // part numbers are 1-based
 }
 
-void CVideoPlayActionProcessor::SetResumeData()
+void CVideoPlayActionProcessor::SetResumeData() const
 {
   if (m_chosenStackPart)
   {
@@ -188,7 +188,7 @@ void CVideoPlayActionProcessor::SetResumeData()
   }
 }
 
-void CVideoPlayActionProcessor::SetStartData()
+void CVideoPlayActionProcessor::SetStartData() const
 {
   if (m_chosenStackPart)
   {
@@ -227,14 +227,14 @@ bool CVideoPlayActionProcessor::OnPlaySelected()
   return true;
 }
 
-void CVideoPlayActionProcessor::Play(const std::string& player)
+void CVideoPlayActionProcessor::Play(const std::string& player) const
 {
   auto item{m_item};
-  if (item->m_bIsFolder && item->HasVideoVersions())
+  if (item->IsFolder() && item->HasVideoVersions())
   {
     //! @todo get rid of "videos with versions as folder" hack!
     item = std::make_shared<CFileItem>(*item);
-    item->m_bIsFolder = false;
+    item->SetFolder(false);
   }
 
   item->SetProperty("playlist_type_hint", static_cast<int>(KODI::PLAYLIST::Id::TYPE_VIDEO));

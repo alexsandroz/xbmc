@@ -12,6 +12,7 @@
 #include "VideoDatabase.h"
 #include "addons/Scraper.h"
 #include "guilib/GUIListItem.h"
+#include "utils/Artwork.h"
 
 #include <set>
 #include <string>
@@ -25,6 +26,7 @@ class CFileItemList;
 namespace KODI::VIDEO
 {
   class IVideoInfoTagLoader;
+  class ISetInfoTagLoader;
 
   typedef struct SScanSettings
   {
@@ -58,6 +60,12 @@ namespace KODI::VIDEO
     void Start(const std::string& strDirectory, bool scanAll = false);
     void Stop();
 
+    /*! \brief Add a set to the database.
+     \param set CSetInfoTag to add to the database.
+     \return true if successful, false otherwise.
+     */
+    bool AddSet(CSetInfoTag* set);
+
     /*! \brief Add an item to the database.
      \param pItem item to add to the database.
      \param content content type of the item.
@@ -67,7 +75,12 @@ namespace KODI::VIDEO
      \param libraryImport Whether this call belongs to a full library import or not. Defaults to false.
      \return database id of the added item, or -1 on failure.
      */
-    long AddVideo(CFileItem *pItem, const CONTENT_TYPE &content, bool videoFolder = false, bool useLocal = true, const CVideoInfoTag *showInfo = NULL, bool libraryImport = false);
+    long AddVideo(CFileItem* pItem,
+                  ADDON::ContentType content,
+                  bool videoFolder = false,
+                  bool useLocal = true,
+                  const CVideoInfoTag* showInfo = NULL,
+                  bool libraryImport = false);
 
     /*! \brief Retrieve information for a list of items and add them to the database.
      \param items list of items to retrieve info for.
@@ -79,10 +92,22 @@ namespace KODI::VIDEO
      \param pDlgProgress progress dialog to update and check for cancellation during processing.  Defaults to NULL.
      \return true if we successfully found information for some items, false otherwise
      */
-    bool RetrieveVideoInfo(CFileItemList& items, bool bDirNames, CONTENT_TYPE content, bool useLocal = true, CScraperUrl *pURL = NULL, bool fetchEpisodes = true, CGUIDialogProgress* pDlgProgress = NULL);
+    bool RetrieveVideoInfo(CFileItemList& items,
+                           bool bDirNames,
+                           ADDON::ContentType content,
+                           bool useLocal = true,
+                           CScraperUrl* pURL = NULL,
+                           bool fetchEpisodes = true,
+                           CGUIDialogProgress* pDlgProgress = NULL);
 
     static void ApplyThumbToFolder(const std::string &folder, const std::string &imdbThumb);
     static bool DownloadFailed(CGUIDialogProgress* pDlgProgress);
+
+    /*! \brief Update the set information from a SET.NFO in the Movie Set Information Folder
+     Gets set details from the VideoInfoTag of a movie
+     \param tag     info tag
+     */
+    static bool UpdateSetInTag(CVideoInfoTag& tag);
 
     /*! \brief Retrieve any artwork associated with an item
      \param pItem item to find artwork for.
@@ -91,7 +116,11 @@ namespace KODI::VIDEO
      \param useLocal whether we should use local thumbs. Defaults to true.
      \param actorArtPath the path to search for actor thumbs. Defaults to empty.
      */
-    void GetArtwork(CFileItem *pItem, const CONTENT_TYPE &content, bool bApplyToDir=false, bool useLocal=true, const std::string &actorArtPath = "");
+    void GetArtwork(CFileItem* pItem,
+                    ADDON::ContentType content,
+                    bool bApplyToDir = false,
+                    bool useLocal = true,
+                    const std::string& actorArtPath = "");
 
     /*! \brief Get season thumbs for a tvshow.
      All seasons (regardless of whether the user has episodes) are added to the art map.
@@ -99,7 +128,10 @@ namespace KODI::VIDEO
      \param art      artwork map to which season thumbs are added.
      \param useLocal whether to use local thumbs, defaults to true
      */
-    static void GetSeasonThumbs(const CVideoInfoTag &show, std::map<int, std::map<std::string, std::string> > &art, const std::vector<std::string> &artTypes, bool useLocal = true);
+    static void GetSeasonThumbs(const CVideoInfoTag& show,
+                                KODI::ART::SeasonsArtwork& art,
+                                const std::vector<std::string>& artTypes,
+                                bool useLocal = true);
     static std::string GetImage(const CScraperUrl::SUrlEntry &image, const std::string& itemPath);
 
     bool EnumerateEpisodeItem(const CFileItem *item, EPISODELIST& episodeList);
@@ -174,7 +206,7 @@ namespace KODI::VIDEO
      \return true if information is found, false if an error occurred, the lookup was cancelled, or no information was found.
      */
     bool GetDetails(CFileItem* pItem,
-                    const std::unordered_map<std::string, std::string>& uniqueIDs,
+                    const ADDON::CScraper::UniqueIDs& uniqueIDs,
                     CScraperUrl& url,
                     const ADDON::ScraperPtr& scraper,
                     VIDEO::IVideoInfoTagLoader* nfoFile = nullptr,
@@ -265,7 +297,7 @@ namespace KODI::VIDEO
     bool EnumerateSeriesFolder(CFileItem* item, EPISODELIST& episodeList);
     bool ProcessItemByVideoInfoTag(const CFileItem *item, EPISODELIST &episodeList);
 
-    bool AddVideoExtras(CFileItemList& items, const CONTENT_TYPE& content, const std::string& path);
+    bool AddVideoExtras(CFileItemList& items, ADDON::ContentType content, const std::string& path);
     bool ProcessVideoVersion(VideoDbContentType itemType, int dbId);
 
     std::pair<InfoType, std::unique_ptr<IVideoInfoTagLoader>> ReadInfoTag(
@@ -275,24 +307,11 @@ namespace KODI::VIDEO
     bool m_scanAll;
     bool m_ignoreVideoVersions{false};
     bool m_ignoreVideoExtras{false};
-    std::string m_strStartDir;
     CVideoDatabase m_database;
-    std::set<std::string> m_pathsToCount;
     std::set<int> m_pathsToClean;
     std::shared_ptr<CAdvancedSettings> m_advancedSettings;
     CVideoDatabase::ScraperCache m_scraperCache;
 
-  private:
-    static void AddLocalItemArtwork(CGUIListItem::ArtMap& itemArt,
-      const std::vector<std::string>& wantedArtTypes, const std::string& itemPath,
-      bool addAll, bool exactName);
-
-    /*! \brief Retrieve the art type for an image from the given size.
-     \param width the width of the image.
-     \param height the height of the image.
-     \return "poster" if the aspect ratio is at most 4:5, "banner" if the aspect ratio
-             is at least 1:4, "thumb" otherwise.
-     */
-    static std::string GetArtTypeFromSize(unsigned int width, unsigned int height);
+    void UpdateSet(const std::shared_ptr<CFileItem>& item);
   };
   } // namespace KODI::VIDEO
