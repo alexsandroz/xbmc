@@ -6,10 +6,10 @@
             "displayName": "Kodi Linux x11",
             "binaryDir": "${sourceDir}/../kodi-build/${presetName}",
             "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Debug",
                 "CMAKE_INSTALL_PREFIX": "${sourceDir}/../kodi-build/${presetName}",
                 "CORE_PLATFORM_NAME": "x11",
-                "APP_RENDER_SYSTEM": "gl"
+                "APP_RENDER_SYSTEM": "gl",
+                "CMAKE_BUILD_TYPE": "Debug"
             }
         }
     ],
@@ -18,7 +18,9 @@
             "name": "kodi-linux-x11",
             "displayName": "Kodi Linux x11",
             "configurePreset": "kodi-linux-x11",     
-            "verbose": false,
+            "configuration": "Debug",
+            "verbose": true,
+            "cleanFirst": false,
             "jobs": 10
         }
     ]
